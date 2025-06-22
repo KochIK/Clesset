@@ -16,13 +16,13 @@ Clesset parses `.imageset` resources and searches for their usage in `*.m` and `
 > mint install kochik/clesset
 > clesset -h
 ```
-### Usage
-##### Commands
+## Usage
+#### Commands
 ```shell
 > clesset analyze <project-path> <resources-path>
 > clesset clear <project-path> <resources-path>
 ```
-##### Options
+#### Options
 ```
 -f <f>  Ignore specific file or folder paths during the search.
 For example: `*.generated.swift`, `*/Generated/*`
@@ -37,7 +37,7 @@ Using `*DoubleCheck` strategies is recommended for broader coverage, especially 
   * `simpleDoubleCheck` – search .m and .swift for `<name>`
   * `rSwiftDoubleCheck` – search .swift for `<rswift_name>` (extra R.swift coverage)
 ```
-##### Example usage
+#### Example usage
 ```shell
 > clesset analyze /Users/user/project /Users/user/project/resources -f "*.generated.swift" "*/Generated/*"
 
