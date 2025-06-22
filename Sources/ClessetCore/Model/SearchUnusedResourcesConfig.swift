@@ -1,0 +1,21 @@
+//
+//  SearchUnusedResourcesConfig.swift
+//  Clesset
+//
+//  Created by Vladyslav Kocherhin on 21.06.2025.
+//
+//  This software is released under the MIT License.
+//  https://opensource.org/licenses/MIT
+//
+
+public struct SearchUnusedResourcesConfig {
+    
+    public let excludedFiles: Set<String>
+    public let stratigies: Set<SearchStrategy>
+    
+    public init(excludedFiles: Set<String>, stratigies: Set<SearchStrategy>) {
+        self.excludedFiles = excludedFiles
+        self.stratigies = stratigies
+    }
+    
+}
