@@ -1,9 +1,21 @@
 # Clesset
-A cli tool for detecting unused image assets in iOS projects.
-Clesset supports multiple built-in search strategies, including Swift, Objective-C, and R.swift.
+A cli tool for detecting unused image assets in iOS projects.\
+Clesset supports multiple built-in search strategies, including `Swift`, `Objective-C`, and `R.swift`.\
+Notice that this project doesn't use complex filters or regular expressions.\
+The idea is simple — it should work right away, without any extra setup or confusion.
 
->It intentionally avoids exposing complex filters or regular expressions to the user.
-> The core idea is simple: it should just work, with no extra setup or guesswork.
+
+> [!NOTE]
+> The current version of the project has no tests and contains some rough edges.
+> I plan to fix this soon.
+
+## Motivation
+There are many tools on GitHub that try to find unused image assets.
+But none of them worked well on a **relly** big iOS projects.
+So I decided to build my own.
+
+If you find this helpful for your work, I’ll be happy!🙂
+
 ## How It Works
 Clesset parses `.imageset` resources and searches for their usage in `*.m` and `*.swift` files using several strategies.
 #### Strategies:
