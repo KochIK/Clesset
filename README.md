@@ -11,7 +11,7 @@ The idea is simple — it should work right away, without any extra setup or con
 
 ## Motivation
 There are many tools on GitHub that try to find unused image assets.
-But none of them worked well on a **relly** big iOS projects.
+But none of them worked well on a relly big iOS projects.
 So I decided to build my own.
 
 If you find this helpful for your work, I’ll be happy!🙂
