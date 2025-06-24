@@ -11,12 +11,14 @@
 import Foundation
 import Darwin
 
-final class SourceFileManager: @unchecked Sendable {
+final class SourceFileManager {
     
-    private var foundUsedResources: UInt = .zero
     private var processedFiles: UInt = .zero
     
-    func resources(in path: String, config: SearchUnusedResourcesConfig) async throws -> Set<FileResource> {
+    func resources(
+        in path: String,
+        config: SearchUnusedResourcesConfig
+    ) async throws(SourceFileManager.Error) -> Set<FileResource> {
         var resources = Set<FileResource>()
         
         try await sourceFiles(in: path, excludePaths: config.excludedFiles) {
@@ -26,16 +28,23 @@ final class SourceFileManager: @unchecked Sendable {
                     let innerDirResources = try await self.resources(in: $0.path, config: config)
                     resources.formUnion(innerDirResources)
                 } catch {
-                    // print(error)
+                    Logger.warning(error)
                 }
             case .file(let ext):
                 switch ext {
                 case .imageset:
-                    guard let resource = try await self.parseResourceFolder(at: $0), !resource.imageFiles.isEmpty else {
+                    guard let resource = try await self.parseResourceFolder(at: $0) else {
                         return
                     }
+                    
+                    guard !resource.imageFiles.isEmpty else {
+                        Logger.warning("Empty imageset: \($0.name)")
+                        return
+                    }
+                    
                     resources.insert(resource)
                 case .jpg, .jpeg, .pdf, .png, .gif:
+                    Logger.warning("Temporary skip: \($0.name)")
                     // resources.insert(FileResource($0, imageFiles: []))
                     return
                 case .h, .m, .mm, .swift:
@@ -52,19 +61,17 @@ final class SourceFileManager: @unchecked Sendable {
         resources: Set<FileResource>,
         config: SearchUnusedResourcesConfig,
         progress: @escaping AnalyzeProgessClosure,
-    ) async throws -> AnalyzeResult {
+    ) async throws(SourceFileManager.Error) -> AnalyzeResult {
         var actor = SearchUnusedResourcesActor(
             resources: resources,
-            searchStrategies: config.stratigies
+            searchStrategies: config.strategies
         )
-        
-        foundUsedResources = .zero
-        processedFiles = .zero
         
         // ignore *.imageset and *.xcassets by default
         var excludedFiles = config.excludedFiles
         excludedFiles.insert("*.imageset")
         excludedFiles.insert("*.xcassets")
+        Logger.verbose("*.imageset and *.xcassets has been added to excluded files")
         
         try await unusedResources(
             at: path,
@@ -76,11 +83,15 @@ final class SourceFileManager: @unchecked Sendable {
         return await AnalyzeResult(usedResources: actor.usedResources, unusedResources: actor.unusedResources)
     }
     
-    func remove(_ resources: Set<FileResource>) async throws {
+    func remove(_ resources: Set<FileResource>) async throws(SourceFileManager.Error) {
         let fileManager = FileManager.default
         
         for resource in resources {
-            try fileManager.removeItem(atPath: resource.path)
+            do {
+                try fileManager.removeItem(atPath: resource.path)
+            } catch {
+                throw .fileManagerError(error.localizedDescription)
+            }
         }
     }
     
@@ -88,12 +99,14 @@ final class SourceFileManager: @unchecked Sendable {
         in path: String,
         excludePaths: Set<String> = [],
         readBlock: (FileSource) async throws -> Void
-    ) async throws {
+    ) async throws(SourceFileManager.Error) {
         guard let dir = opendir(path) else {
-            throw NSError()
+            throw .cannotOpenDir(path)
         }
         
-        guard !shoudPathIgnore(path: path, ignorePatterns: excludePaths) else {
+        guard !shouldPathIgnore(path: path, ignorePatterns: excludePaths) else {
+            Logger.verbose("Ignore \(path)")
+            closedir(dir)
             return
         }
         
@@ -104,20 +117,21 @@ final class SourceFileManager: @unchecked Sendable {
                     path: path
                 )
                 
-                guard !shoudPathIgnore(path: sourceFile.path, ignorePatterns: excludePaths) else {
-                    return
+                guard !shouldPathIgnore(path: sourceFile.path, ignorePatterns: excludePaths) else {
+                    Logger.verbose("Ignore \(sourceFile.path)")
+                    break
                 }
                 
                 try await readBlock(sourceFile)
             } catch {
-                // print("sourceFilesError=\(error)")
+                Logger.verbose(error)
             }
         }
         
         closedir(dir)
     }
     
-    private func shoudPathIgnore(path: String, ignorePatterns: Set<String>) -> Bool {
+    private func shouldPathIgnore(path: String, ignorePatterns: Set<String>) -> Bool {
         let triggeredPattern = ignorePatterns.first(where: {
             return fnmatch($0, path, .zero) == .zero
         })
@@ -125,7 +139,7 @@ final class SourceFileManager: @unchecked Sendable {
         return triggeredPattern != nil
     }
     
-    private func parseResourceFolder(at sourceFile: FileSource) async throws -> FileResource? {
+    private func parseResourceFolder(at sourceFile: FileSource) async throws(SourceFileManager.Error) -> FileResource? {
         var imageFiles = Set<FileSource>()
         
         try await sourceFiles(in: sourceFile.path) {
@@ -134,10 +148,8 @@ final class SourceFileManager: @unchecked Sendable {
                 switch ext {
                 case .jpeg, .jpg, .pdf, .png, .gif:
                     imageFiles.insert($0)
-                    return
                 case .imageset:
-                    // print("error/warn")
-                    return
+                    Logger.warning("Unexpected nested imageset")
                 case .swift, .m, .mm, .h:
                     return
                 }
@@ -147,7 +159,7 @@ final class SourceFileManager: @unchecked Sendable {
         }
         
         guard !imageFiles.isEmpty else {
-            // print("[ERROR] imageset is empty")
+            Logger.warning("imageset is empty")
             return nil
         }
         
@@ -159,7 +171,7 @@ final class SourceFileManager: @unchecked Sendable {
         excludedFiles: Set<String>,
         actor: inout SearchUnusedResourcesActor,
         progress: @escaping AnalyzeProgessClosure,
-    ) async throws {
+    ) async throws(SourceFileManager.Error) {
         try await sourceFiles(in: path, excludePaths: excludedFiles) { sourceFile in
             switch sourceFile.type {
             case .dir:
@@ -171,48 +183,43 @@ final class SourceFileManager: @unchecked Sendable {
                 )
                 
             case .file(let ext):
-                let availableSearchStrategies: Set<SearchStrategy>
-                
-                switch ext {
-                case .m:
-                    availableSearchStrategies = [.objc, /*.simpleDoubleCheck*/]
-                    
-                case .swift:
-                    availableSearchStrategies = [.rSwift, .swift, .rSwiftDoubleCheck, /*.simpleDoubleCheck*/]
-                    
-                case .imageset, .h, .mm, .jpg, .jpeg, .pdf, .png, .gif:
+                guard let availableStrategies = ext.availableStrategies else {
                     return
                 }
                 
-                let searchPatterns = await actor.resourcesSearchPatterns.compactMapValues { value -> [[UInt8]]? in
-                    return value.filter { availableSearchStrategies.contains($0.key) }.values.map { $0 }
+                let searchPatterns = await actor.searchPatterns.compactMapValues { strategies in
+                    return availableStrategies.compactMap { strategies[$0] }
                 }
                 
-                processedFiles += 1
-                progress(self.foundUsedResources, self.processedFiles, sourceFile.name)
+                guard !searchPatterns.isEmpty else {
+                    return
+                }
+                
                 await withTaskGroup { group in
-                    guard let fd = FileDescriptor(path: sourceFile.path) else {
-                        // print("[ERROR] cannot open file")
+                    guard let fd = SourceFileDescriptor(path: sourceFile.path) else {
+                        Logger.error("Cannot open the file \(sourceFile.path)")
                         return
                     }
                     
-                    searchPatterns.forEach { resource in
-                        resource.value.forEach { resourceSearchPattern in
-                            group.addTask {
-                                let isMatched = memmem(fd.pointer.ptr, fd.size, resourceSearchPattern, resourceSearchPattern.count) != nil
-                                return (resource.key, isMatched)
-                            }
+                    searchPatterns.forEach { resource, patterns in
+                        group.addTask {
+                            let isMatched = patterns.contains(where: { pattern in
+                                memmem(fd.pointer.ptr, fd.size, pattern, pattern.count) != nil
+                            })
+                            
+                            return (resource, isMatched)
                         }
                     }
                     
                     for await searchResult in group {
                         if searchResult.1 {
-                            if await actor.founded(resource: searchResult.0, at: sourceFile) {
-                                foundUsedResources += 1
-                            }
+                            Logger.verbose("\(sourceFile.name) resource has been found at \(sourceFile.name)")
+                            await actor.found(resource: searchResult.0, at: sourceFile)
                         }
                     }
                     
+                    let stat = await (UInt(actor.usedResources.count), actor.processed(file: sourceFile))
+                    progress(stat.0, stat.1, sourceFile.name)
                     fd.close()
                 }
             }
@@ -227,32 +234,50 @@ extension SourceFileManager {
         
         private(set) var unusedResources: Set<FileResource>
         private(set) var usedResources: [FileResource: Set<FileSource>]
-        private(set) var resourcesSearchPatterns: [FileResource: [SearchStrategy: [UInt8]]]
+        private(set) var processedFilesCount: UInt
+        private(set) var searchPatterns: [FileResource: [SearchStrategy: [UInt8]]]
         
-        let searchStrategies: Set<SearchStrategy>
+        private let searchStrategies: Set<SearchStrategy>
         
         init(resources: Set<FileResource>, searchStrategies: Set<SearchStrategy>) {
             self.unusedResources = resources
             self.usedResources = [:]
+            self.processedFilesCount = .zero
             self.searchStrategies = searchStrategies
-            self.resourcesSearchPatterns = unusedResources.reduce(into: [FileResource: [SearchStrategy: [UInt8]]]()) { result, asset in
+            self.searchPatterns = unusedResources.reduce(into: [FileResource: [SearchStrategy: [UInt8]]]()) { result, asset in
                 result[asset] = searchStrategies.reduce(into: [SearchStrategy: [UInt8]]()) {
                     $0[$1] = [UInt8]($1.searchPattern(resourceName: asset.name).data(using: .utf8)!)
                 }
             }
         }
         
-        func founded(resource: FileResource, at sourcFile: FileSource)  -> Bool {
-            let isRemoved = unusedResources.remove(resource) != nil
-            resourcesSearchPatterns.removeValue(forKey: resource)
+        func found(resource: FileResource, at sourceFile: FileSource) {
+            unusedResources.remove(resource)
+            searchPatterns.removeValue(forKey: resource)
             
             var foundAt = usedResources[resource] ?? []
-            foundAt.insert(sourcFile)
+            foundAt.insert(sourceFile)
             usedResources[resource] = foundAt
-            
-            return isRemoved
         }
         
+        func processed(file: FileSource) -> UInt {
+            processedFilesCount += 1
+            
+            return processedFilesCount
+        }
+    }
+    
+}
+
+extension SourceFileManager {
+    
+    public enum Error: ClessetError {
+        case cannotOpenDir(String)
+        case sourceFileNoName(String)
+        case sourceFileSkipPath(String)
+        case sourceFileCannotGetStats(String)
+        case sourceFileUnknowType(String)
+        case fileManagerError(String)
     }
     
 }

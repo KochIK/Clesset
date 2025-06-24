@@ -15,8 +15,7 @@ public enum SearchStrategy: String, CaseIterable, Sendable {
     case objc
     case swift
     case rSwift
-    // case simpleDoubleCheck
-    case rSwiftDoubleCheck
+    case rSwiftSimple
     
 }
 
@@ -27,13 +26,11 @@ extension SearchStrategy {
         case .objc, .swift:
             return "\"\(resourceName)\""
         case .rSwift:
-            let rSwiftName = RSwiftNameGenerator(name: resourceName).value
+            let rSwiftName = Self.rSwiftSimple.searchPattern(resourceName: resourceName)
             return "R.image.\(rSwiftName)"
-            // case .simpleDoubleCheck:
-            // return "\(assetName)"
-        case .rSwiftDoubleCheck:
+        case .rSwiftSimple:
             let rSwiftName = RSwiftNameGenerator(name: resourceName).value
-            return "\(rSwiftName)"
+            return ".\(rSwiftName)"
         }
     }
     

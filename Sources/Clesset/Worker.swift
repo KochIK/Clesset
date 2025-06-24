@@ -13,29 +13,29 @@ import ClessetCore
 
 final class Worker {
     
-    static func analyze(
+    static func run(
+        with mode: Clesset.Mode,
         projectPath: String,
         resourcesPath: String,
         excludedPaths: Set<String>,
-        excludedStrategirs: Set<String>,
-        shouldRemoveUnusedResources: Bool,
+        excludedStrategies: Set<String>
     ) async throws {
         let start = CFAbsoluteTimeGetCurrent()
         let project = Project(path: projectPath, assetsPath: resourcesPath)
         
-        let _excludedStrategies = excludedStrategirs.compactMap { SearchStrategy(rawValue: $0) }
+        let _excludedStrategies = excludedStrategies.compactMap { SearchStrategy(rawValue: $0) }
         let searchStrategies = SearchStrategy.allCases.filter { !_excludedStrategies.contains($0) }
         let searchConfig = SearchUnusedResourcesConfig(
             excludedFiles: Set(excludedPaths),
-            stratigies: Set(searchStrategies)
+            strategies: Set(searchStrategies)
         )
         
         print("""
-            \("Run analyze with config:".bold)
+            \("Run with config:".bold)
             Project path: \(projectPath)
-            Reources path: \(resourcesPath)
+            Resources path: \(resourcesPath)
             Excluded paths: \(excludedPaths)
-            Excluded strategies: \(excludedStrategirs)
+            Excluded strategies: \(excludedStrategies)
             
             """)
         
@@ -49,22 +49,22 @@ final class Worker {
         }
         
         let result = Result(
-            totalResourcrs: projectResources,
+            totalResources: projectResources,
             unusedResources: unusedResourcesResult.unusedResources,
             usedResources: unusedResourcesResult.usedResources,
             time: CFAbsoluteTimeGetCurrent() - start
         )
         
-        print("\n\(result)")
+        print("\n\("Summary".bold)\n\(result)")
         
-        if shouldRemoveUnusedResources {
+        if mode == .clear {
             guard !result.unusedResources.isEmpty else {
                 print("\nSkip. All resources are in use")
                 return
             }
             
             try await project.remove(resources: result.unusedResources)
-            print("\n\(result.unusedResources.count) resources has been removed.")
+            print("\n\(result.unusedResources.count) resources have been removed.")
         }
     }
     
@@ -74,28 +74,33 @@ extension Worker {
     
     struct Result: CustomStringConvertible {
         
-        let totalResourcrs: Set<FileResource>
+        let totalResources: Set<FileResource>
         let unusedResources: Set<FileResource>
         let usedResources: [FileResource: Set<FileSource>]
         let time: TimeInterval
         
         var description: String {
-            let used = usedResources.reduce(into: "") {
-                let lastIndex = $1.value.count - 1
-                let foundAt = $1.value.enumerated().reduce(into: "") {
-                    let symbol = lastIndex == $1.offset ? "└──" : "├──"
-                    $0 += " \(symbol) \($1.element.name)\n"
+            let usedTable = Table(
+                rows: usedResources.map {
+                    Table.Row(resource: $0.key.name, size: String($0.key.size), files: $0.value.map { $0.name })
                 }
-                
-                $0 += "\n\($1.key.name)\n\(foundAt)"
-            }
+            )
+            
+            let unusedTable = Table(
+                rows: unusedResources.map {
+                    Table.Row(resource: $0.name, size: String($0.size), files: ["None"])
+                }
+            )
             
             return """
-                   \("Summary".bold)
-                   \(used)
-                   Total resources: \(totalResourcrs.count) / \(totalResourcrs.reduce(into: 0, { $0 += $1.size })) bytes
-                   Used resources: \(usedResources.count) / \(usedResources.reduce(into: 0, { $0 += $1.key.size })) bytes
-                   Unused resources: \(unusedResources.count) / \(unusedResources.reduce(into: 0, { $0 += $1.size })) bytes
+                   Used:
+                   \(usedTable.draw())
+                   Unused:
+                   \(unusedTable.draw())
+                   
+                   Total resources: \(totalResources.count) = \(totalResources.reduce(into: 0, { $0 += $1.size })) bytes
+                   Used resources: \(usedResources.count) = \(usedResources.reduce(into: 0, { $0 += $1.key.size })) bytes
+                   Unused resources: \(unusedResources.count) = \(unusedResources.reduce(into: 0, { $0 += $1.size })) bytes
                    Total time: \(time)
                    """
         }

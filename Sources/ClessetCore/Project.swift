@@ -12,7 +12,7 @@ import Foundation
 
 public final class Project: @unchecked Sendable {
     
-    private(set) var state: State = .idle
+    public private(set) var state: State = .idle
     
     public let path: String
     public let assetsPath: String
@@ -27,12 +27,14 @@ public final class Project: @unchecked Sendable {
     
     public func resources(config: SearchUnusedResourcesConfig) async throws -> Set<FileResource> {
         guard case .idle = state else {
-            throw NSError()
+            throw Error.wrongState("should be `idle`, current: \(state)")
         }
         
-        state = .analyzing
+        Logger.verbose("Start project processing")
+        state = .processing
         let resources = try await fileManager.resources(in: assetsPath, config: config)
-        state = .analized(resources)
+        state = .processed(resources)
+        Logger.verbose("Processing has been finished. Resources count: \(resources.count)")
         
         return resources
     }
@@ -41,14 +43,15 @@ public final class Project: @unchecked Sendable {
         with config: SearchUnusedResourcesConfig,
         progress: @escaping AnalyzeProgessClosure
     ) async throws -> AnalyzeResult {
-        guard case .analized(let resources) = state else {
-            throw NSError()
+        guard case .processed(let resources) = state else {
+            throw Error.wrongState("should be `processed`, current: `\(state)`")
         }
         
         guard !resources.isEmpty else {
-            throw NSError()
+            throw Error.noResources
         }
         
+        Logger.verbose("Start searching for unused resources")
         return try await fileManager.unusedResources(
             at: path,
             resources: resources,
@@ -58,6 +61,7 @@ public final class Project: @unchecked Sendable {
     }
     
     public func remove(resources: Set<FileResource>) async throws {
+        Logger.verbose("\(resources.count) resources will be removed")
         try await fileManager.remove(resources)
     }
     
@@ -67,8 +71,13 @@ extension Project {
     
     public enum State {
         case idle
-        case analyzing
-        case analized(Set<FileResource>)
+        case processing
+        case processed(Set<FileResource>)
+    }
+    
+    public enum Error: ClessetError {
+        case noResources
+        case wrongState(String)
     }
     
 }

@@ -47,7 +47,7 @@ public struct RSwiftNameGenerator: Hashable, Comparable, Sendable {
         let prefixRange = upperCasedPrefixRegex.rangeOfFirstMatch(in: name, options: [], range: name.fullRange)
         
         if prefixRange.location == NSNotFound {
-            return name.lowerCaseFirstLatter()
+            return name.lowerCaseFirstLetter()
         } else {
             let lowercasedPrefix = (name as NSString).substring(with: prefixRange).lowercased()
             return (name as NSString).replacingCharacters(in: prefixRange, with: lowercasedPrefix)

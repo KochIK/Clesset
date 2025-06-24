@@ -11,11 +11,11 @@
 public struct SearchUnusedResourcesConfig {
     
     public let excludedFiles: Set<String>
-    public let stratigies: Set<SearchStrategy>
+    public let strategies: Set<SearchStrategy>
     
-    public init(excludedFiles: Set<String>, stratigies: Set<SearchStrategy>) {
+    public init(excludedFiles: Set<String>, strategies: Set<SearchStrategy>) {
         self.excludedFiles = excludedFiles
-        self.stratigies = stratigies
+        self.strategies = strategies
     }
     
 }

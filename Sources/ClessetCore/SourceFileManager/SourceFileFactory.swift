@@ -13,25 +13,24 @@ import Darwin
 
 final class SourceFileFactory {
     
-    static func createSourceFile(from pointer: UnsafeMutablePointer<dirent>, path: String) throws -> FileSource {
+    static func createSourceFile(from pointer: UnsafeMutablePointer<dirent>, path: String) throws(SourceFileManager.Error) -> FileSource {
         var nameBuffer = [CChar](repeating: 0, count: Int(NAME_MAX) + 1)
         strncpy(&nameBuffer, &pointer.pointee.d_name.0, Int(NAME_MAX))
         
         guard let name = String(cString: nameBuffer, encoding: .utf8) else {
-            throw NSError(domain: "no_name", code: 0)
+            throw .sourceFileNoName(path)
         }
         
         // Skip current/prev/hidden paths
         guard name != ".", name != "..", !name.hasPrefix(".") else {
-            throw NSError()
+            throw .sourceFileSkipPath(name)
         }
         
         let path = "\(path)/\(name)"
         var statBuffer = stat()
         
         guard stat(path, &statBuffer) == 0 else {
-            perror("stat-error")
-            throw NSError(domain: "cannot_get_stats", code: 0)
+            throw .sourceFileCannotGetStats(name)
         }
         
         let type: FileSource.Kind
@@ -45,7 +44,7 @@ final class SourceFileFactory {
             type = .file(fileExtension)
         }
         else {
-            throw NSError(domain: "cannot_get_file_type", code: 0)
+            throw .sourceFileUnknowType(name)
         }
         
         return FileSource(

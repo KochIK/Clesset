@@ -1,5 +1,5 @@
 //
-//  FileDescriptor.swift
+//  SourceFileDescriptor.swift
 //  Clesset
 //
 //  Created by Vladyslav Kocherhin on 02.06.2025.
@@ -11,7 +11,7 @@
 import Foundation
 import Darwin
 
-struct FileDescriptor: Sendable {
+struct SourceFileDescriptor: Sendable {
     
     let size: Int
     let pointer: RawPointerBox
@@ -20,9 +20,18 @@ struct FileDescriptor: Sendable {
     
     init?(path: String) {
         fd = Darwin.open(path, Darwin.O_RDONLY)
+        
+        guard fd >= .zero else {
+            return nil
+        }
+        
         size = Int(Darwin.lseek(fd, 0, Darwin.SEEK_END))
         
-        guard let pointer = Darwin.mmap(nil, size, Darwin.PROT_READ, Darwin.MAP_FILE | Darwin.MAP_PRIVATE, fd, 0) else {
+        guard
+            size > .zero,
+            let pointer = Darwin.mmap(nil, size, Darwin.PROT_READ, Darwin.MAP_FILE | Darwin.MAP_PRIVATE, fd, 0)
+        else {
+            Darwin.close(fd)
             return nil
         }
         
@@ -32,16 +41,20 @@ struct FileDescriptor: Sendable {
     }
     
     func close() {
+        if size > .zero {
+            Darwin.munmap(UnsafeMutableRawPointer(mutating: pointer.ptr), size)
+        }
+        
         Darwin.close(fd)
     }
     
 }
 
-extension FileDescriptor {
+extension SourceFileDescriptor {
     
     struct RawPointerBox: @unchecked Sendable {
         
-        let ptr: UnsafeMutablePointer<UInt8>
+        let ptr: UnsafePointer<UInt8>
         
     }
     

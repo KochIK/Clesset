@@ -25,10 +25,6 @@ public struct FileSource: Sendable, Hashable {
         self.path = path
     }
     
-    static public func == (lhs: FileSource, rhs: FileSource) -> Bool {
-        return lhs.path == rhs.path
-    }
-    
 }
 
 extension FileSource {

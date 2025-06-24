@@ -24,6 +24,9 @@ let package = Package(
         ),
         .target(
             name: "ClessetCore",
+            dependencies: [
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
         ),
     ]
 )

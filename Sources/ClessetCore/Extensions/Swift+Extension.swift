@@ -16,7 +16,7 @@ extension String {
         return prefix(1).capitalized + dropFirst()
     }
     
-    func lowerCaseFirstLatter() -> String {
+    func lowerCaseFirstLetter() -> String {
         return prefix(1).lowercased() + dropFirst()
     }
     
