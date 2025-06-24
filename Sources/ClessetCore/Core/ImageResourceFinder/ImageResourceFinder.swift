@@ -1,5 +1,5 @@
 //
-//  SourceFileManager.swift
+//  ImageResourceFinder.swift
 //  Clesset
 //
 //  Created by Vladyslav Kocherhin on 18.06.2025.
@@ -11,21 +11,21 @@
 import Foundation
 import Darwin
 
-final class SourceFileManager {
+final class ImageResourceFinder {
     
-    private var processedFiles: UInt = .zero
+    private let fileScanner = ProjectFileScanner()
     
-    func resources(
+    func findAllResources(
         in path: String,
         config: SearchUnusedResourcesConfig
-    ) async throws(SourceFileManager.Error) -> Set<FileResource> {
+    ) async throws(ImageResourceFinder.Error) -> Set<FileResource> {
         var resources = Set<FileResource>()
         
-        try await sourceFiles(in: path, excludePaths: config.excludedFiles) {
+        try await fileScanner.sourceFiles(in: path, excludePaths: config.excludedFiles) {
             switch $0.type {
             case .dir:
                 do {
-                    let innerDirResources = try await self.resources(in: $0.path, config: config)
+                    let innerDirResources = try await self.findAllResources(in: $0.path, config: config)
                     resources.formUnion(innerDirResources)
                 } catch {
                     Logger.warning(error)
@@ -56,13 +56,13 @@ final class SourceFileManager {
         return resources
     }
     
-    func unusedResources(
-        at path: String,
+    func findUnusedResources(
+        in path: String,
         resources: Set<FileResource>,
         config: SearchUnusedResourcesConfig,
         progress: @escaping AnalyzeProgessClosure,
-    ) async throws(SourceFileManager.Error) -> AnalyzeResult {
-        var actor = SearchUnusedResourcesActor(
+    ) async throws(ImageResourceFinder.Error) -> AnalyzeResult {
+        var actor = UnusedResourcesActor(
             resources: resources,
             searchStrategies: config.strategies
         )
@@ -73,8 +73,8 @@ final class SourceFileManager {
         excludedFiles.insert("*.xcassets")
         Logger.verbose("*.imageset and *.xcassets has been added to excluded files")
         
-        try await unusedResources(
-            at: path,
+        try await findUnusedResources(
+            in: path,
             excludedFiles: config.excludedFiles,
             actor: &actor,
             progress: progress,
@@ -83,7 +83,7 @@ final class SourceFileManager {
         return await AnalyzeResult(usedResources: actor.usedResources, unusedResources: actor.unusedResources)
     }
     
-    func remove(_ resources: Set<FileResource>) async throws(SourceFileManager.Error) {
+    func remove(_ resources: Set<FileResource>) async throws(ImageResourceFinder.Error) {
         let fileManager = FileManager.default
         
         for resource in resources {
@@ -95,54 +95,10 @@ final class SourceFileManager {
         }
     }
     
-    private func sourceFiles(
-        in path: String,
-        excludePaths: Set<String> = [],
-        readBlock: (FileSource) async throws -> Void
-    ) async throws(SourceFileManager.Error) {
-        guard let dir = opendir(path) else {
-            throw .cannotOpenDir(path)
-        }
-        
-        guard !shouldPathIgnore(path: path, ignorePatterns: excludePaths) else {
-            Logger.verbose("Ignore \(path)")
-            closedir(dir)
-            return
-        }
-        
-        while let entry = readdir(dir) {
-            do {
-                let sourceFile = try SourceFileFactory.createSourceFile(
-                    from: entry,
-                    path: path
-                )
-                
-                guard !shouldPathIgnore(path: sourceFile.path, ignorePatterns: excludePaths) else {
-                    Logger.verbose("Ignore \(sourceFile.path)")
-                    break
-                }
-                
-                try await readBlock(sourceFile)
-            } catch {
-                Logger.verbose(error)
-            }
-        }
-        
-        closedir(dir)
-    }
-    
-    private func shouldPathIgnore(path: String, ignorePatterns: Set<String>) -> Bool {
-        let triggeredPattern = ignorePatterns.first(where: {
-            return fnmatch($0, path, .zero) == .zero
-        })
-        
-        return triggeredPattern != nil
-    }
-    
-    private func parseResourceFolder(at sourceFile: FileSource) async throws(SourceFileManager.Error) -> FileResource? {
+    private func parseResourceFolder(at sourceFile: FileSource) async throws(ImageResourceFinder.Error) -> FileResource? {
         var imageFiles = Set<FileSource>()
         
-        try await sourceFiles(in: sourceFile.path) {
+        try await fileScanner.sourceFiles(in: sourceFile.path) {
             switch $0.type {
             case .file(let ext):
                 switch ext {
@@ -166,17 +122,17 @@ final class SourceFileManager {
         return FileResource(sourceFile, imageFiles: imageFiles)
     }
     
-    private func unusedResources(
-        at path: String,
+    private func findUnusedResources(
+        in path: String,
         excludedFiles: Set<String>,
-        actor: inout SearchUnusedResourcesActor,
+        actor: inout UnusedResourcesActor,
         progress: @escaping AnalyzeProgessClosure,
-    ) async throws(SourceFileManager.Error) {
-        try await sourceFiles(in: path, excludePaths: excludedFiles) { sourceFile in
+    ) async throws(ImageResourceFinder.Error) {
+        try await fileScanner.sourceFiles(in: path, excludePaths: excludedFiles) { sourceFile in
             switch sourceFile.type {
             case .dir:
-                try await unusedResources(
-                    at: sourceFile.path,
+                try await findUnusedResources(
+                    in: sourceFile.path,
                     excludedFiles: excludedFiles,
                     actor: &actor,
                     progress: progress,
@@ -228,48 +184,7 @@ final class SourceFileManager {
     
 }
 
-extension SourceFileManager {
-    
-    private actor SearchUnusedResourcesActor {
-        
-        private(set) var unusedResources: Set<FileResource>
-        private(set) var usedResources: [FileResource: Set<FileSource>]
-        private(set) var processedFilesCount: UInt
-        private(set) var searchPatterns: [FileResource: [SearchStrategy: [UInt8]]]
-        
-        private let searchStrategies: Set<SearchStrategy>
-        
-        init(resources: Set<FileResource>, searchStrategies: Set<SearchStrategy>) {
-            self.unusedResources = resources
-            self.usedResources = [:]
-            self.processedFilesCount = .zero
-            self.searchStrategies = searchStrategies
-            self.searchPatterns = unusedResources.reduce(into: [FileResource: [SearchStrategy: [UInt8]]]()) { result, asset in
-                result[asset] = searchStrategies.reduce(into: [SearchStrategy: [UInt8]]()) {
-                    $0[$1] = [UInt8]($1.searchPattern(resourceName: asset.name).data(using: .utf8)!)
-                }
-            }
-        }
-        
-        func found(resource: FileResource, at sourceFile: FileSource) {
-            unusedResources.remove(resource)
-            searchPatterns.removeValue(forKey: resource)
-            
-            var foundAt = usedResources[resource] ?? []
-            foundAt.insert(sourceFile)
-            usedResources[resource] = foundAt
-        }
-        
-        func processed(file: FileSource) -> UInt {
-            processedFilesCount += 1
-            
-            return processedFilesCount
-        }
-    }
-    
-}
-
-extension SourceFileManager {
+extension ImageResourceFinder {
     
     public enum Error: ClessetError {
         case cannotOpenDir(String)

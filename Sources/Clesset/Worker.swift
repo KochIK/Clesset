@@ -21,7 +21,7 @@ final class Worker {
         excludedStrategies: Set<String>
     ) async throws {
         let start = CFAbsoluteTimeGetCurrent()
-        let project = Project(path: projectPath, assetsPath: resourcesPath)
+        let projectCleaner = ProjectCleaner(path: projectPath, assetsPath: resourcesPath)
         
         let _excludedStrategies = excludedStrategies.compactMap { SearchStrategy(rawValue: $0) }
         let searchStrategies = SearchStrategy.allCases.filter { !_excludedStrategies.contains($0) }
@@ -39,11 +39,11 @@ final class Worker {
             
             """)
         
-        let projectResources = try await project.resources(config: searchConfig)
+        let projectResources = try await projectCleaner.findAllResources(config: searchConfig)
         
         print("Detected \(projectResources.count) resources.")
         
-        let unusedResourcesResult = try await project.unusedAssets(with: searchConfig) { found, processed, processingFileName in
+        let unusedResourcesResult = try await projectCleaner.findUnusedResources(with: searchConfig) { found, processed, processingFileName in
             print("\u{001B}[2K\rFound: \(found)/\(projectResources.count) | Processed: \(processed) <- \(processingFileName)", terminator: "")
             fflush(stdout)
         }
@@ -63,7 +63,7 @@ final class Worker {
                 return
             }
             
-            try await project.remove(resources: result.unusedResources)
+            try await projectCleaner.remove(result.unusedResources)
             print("\n\(result.unusedResources.count) resources have been removed.")
         }
     }

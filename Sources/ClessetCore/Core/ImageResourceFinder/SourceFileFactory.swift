@@ -13,7 +13,7 @@ import Darwin
 
 final class SourceFileFactory {
     
-    static func createSourceFile(from pointer: UnsafeMutablePointer<dirent>, path: String) throws(SourceFileManager.Error) -> FileSource {
+    static func createSourceFile(from pointer: UnsafeMutablePointer<dirent>, path: String) throws(ImageResourceFinder.Error) -> FileSource {
         var nameBuffer = [CChar](repeating: 0, count: Int(NAME_MAX) + 1)
         strncpy(&nameBuffer, &pointer.pointee.d_name.0, Int(NAME_MAX))
         
